@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'data.dart';
-import 'kids_home.dart';
-import 'pin.dart';
+import 'shell.dart';
 import 'ui.dart';
-import 'update.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,37 +48,7 @@ class DevooTvApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      home: const _Start(),
+      home: const AppShell(),
     );
   }
-}
-
-/// Si apre sempre sulla parte Kids; dopo qualche secondo controlla gli aggiornamenti.
-class _Start extends StatefulWidget {
-  const _Start();
-  @override
-  State<_Start> createState() => _StartState();
-}
-
-class _StartState extends State<_Start> {
-  // uscendo dall'app (home, altra app, schermo spento) il Mondo si richiude: al ritorno serve il PIN
-  late final AppLifecycleListener _life = AppLifecycleListener(onPause: () => Pin.unlocked = false);
-
-  @override
-  void dispose() {
-    _life.dispose();
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _life.hashCode; // avvia l'ascolto
-    Future<void>.delayed(const Duration(seconds: 5), () {
-      if (mounted) checkForUpdate(context);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => const KidsHome();
 }
