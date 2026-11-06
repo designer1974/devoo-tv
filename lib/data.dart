@@ -35,9 +35,10 @@ class TvData {
     List<Channel>? cached;
     try {
       if (await f.exists()) {
-        cached = await compute(_decode, await f.readAsString());
+        final c = await compute(_decode, await f.readAsString());
+        cached = c;
         final young = DateTime.now().difference(await f.lastModified()) < const Duration(days: 1);
-        if (young && !fresh && cached.isNotEmpty) return _mem[url] = cached;
+        if (young && !fresh && c.isNotEmpty) return _mem[url] = c;
       }
     } catch (_) {}
     try {
@@ -49,7 +50,8 @@ class TvData {
       } catch (_) {}
       return _mem[url] = list;
     } catch (e) {
-      if (cached != null && cached.isNotEmpty) return _mem[url] = cached; // senza internet: l'ultimo elenco
+      final c = cached;
+      if (c != null && c.isNotEmpty) return _mem[url] = c; // senza internet: l'ultimo elenco
       rethrow;
     }
   }
