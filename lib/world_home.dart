@@ -205,6 +205,7 @@ class _ChannelListPageState extends State<ChannelListPage> {
       ),
       body: ChannelsLoader(
         url: widget.url,
+        color: sky,
         builder: (context, all, refresh) {
           final q = _q.toLowerCase();
           final list = q.isEmpty ? all : all.where((c) => c.name.toLowerCase().contains(q)).toList();

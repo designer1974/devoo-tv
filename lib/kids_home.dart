@@ -17,6 +17,15 @@ class KidsHome extends StatefulWidget {
 class _KidsHomeState extends State<KidsHome> {
   String _q = '';
   String _country = ''; // '' = tutti, '*' = preferiti
+  Map<String, String> _names = {for (final c in fallbackCountries) c.code.toUpperCase(): c.name};
+
+  @override
+  void initState() {
+    super.initState();
+    TvData.i.countries().then((l) {
+      if (mounted) setState(() => _names = {for (final c in l) c.code.toUpperCase(): c.name});
+    });
+  }
 
   Future<void> _openWorld() async {
     if (!await unlockWorld(context) || !mounted) return;
@@ -29,7 +38,11 @@ class _KidsHomeState extends State<KidsHome> {
       backgroundColor: navy,
       body: SafeArea(
         bottom: false,
-        child: ChannelsLoader(
+        child: Column(
+          children: [
+            _header(),
+            Expanded(
+              child: ChannelsLoader(
           url: TvData.kidsUrl,
           builder: (context, all, refresh) => ListenableBuilder(
             listenable: Favorites.i,
@@ -44,13 +57,18 @@ class _KidsHomeState extends State<KidsHome> {
                   ? Favorites.i.kids
                   : all.where((c) => _country.isEmpty || c.countryCode == _country).toList();
               final q = _q.toLowerCase();
-              final list = q.isEmpty ? base : base.where((c) => c.name.toLowerCase().contains(q)).toList();
+              final list = q.isEmpty
+                  ? base
+                  : base
+                      .where((c) =>
+                          c.name.toLowerCase().contains(q) ||
+                          (_names[c.countryCode] ?? '').toLowerCase().contains(q))
+                      .toList();
               return RefreshIndicator(
                 color: yellow,
                 onRefresh: refresh,
                 child: CustomScrollView(
                   slivers: [
-                    SliverToBoxAdapter(child: _header()),
                     SliverToBoxAdapter(child: SearchBox(onChanged: (v) => setState(() => _q = v))),
                     SliverToBoxAdapter(
                       child: SizedBox(
@@ -63,7 +81,7 @@ class _KidsHomeState extends State<KidsHome> {
                             Pill(label: '❤️ Preferiti', selected: _country == '*', onTap: () => setState(() => _country = '*')),
                             for (final cc in countries)
                               Pill(
-                                label: '${flagEmoji(cc)} ${count[cc]}',
+                                label: '${flagEmoji(cc)} ${_names[cc] ?? cc} · ${count[cc]}',
                                 selected: _country == cc,
                                 onTap: () => setState(() => _country = cc),
                               ),
@@ -96,6 +114,9 @@ class _KidsHomeState extends State<KidsHome> {
               );
             },
           ),
+        ),
+            ),
+          ],
         ),
       ),
     );

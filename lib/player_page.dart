@@ -63,27 +63,32 @@ class _PlayerPageState extends State<PlayerPage> {
     });
     await old?.dispose();
     final c = _c;
-    final ctl = VideoPlayerController.networkUrl(
-      Uri.parse(c.url),
-      httpHeaders: c.headers,
-      formatHint: c.url.toLowerCase().contains('.m3u8') ? VideoFormat.hls : null,
-    );
-    try {
-      await ctl.initialize().timeout(const Duration(seconds: 25));
-      if (seq != _seq || !mounted) {
-        await ctl.dispose();
+    // prova gli indirizzi del canale uno dopo l'altro
+    for (final u in c.urls) {
+      if (seq != _seq || !mounted) return;
+      final ctl = VideoPlayerController.networkUrl(
+        Uri.parse(u),
+        httpHeaders: c.headers,
+        formatHint: u.toLowerCase().contains('.m3u8') ? VideoFormat.hls : null,
+      );
+      try {
+        await ctl.initialize().timeout(const Duration(seconds: 20));
+        if (seq != _seq || !mounted) {
+          await ctl.dispose();
+          return;
+        }
+        ctl.addListener(() {
+          if (ctl.value.hasError && mounted && seq == _seq && !_failed) setState(() => _failed = true);
+        });
+        await ctl.play();
+        setState(() => _ctl = ctl);
+        _showControls();
         return;
+      } catch (_) {
+        await ctl.dispose();
       }
-      ctl.addListener(() {
-        if (ctl.value.hasError && mounted && seq == _seq && !_failed) setState(() => _failed = true);
-      });
-      await ctl.play();
-      setState(() => _ctl = ctl);
-      _showControls();
-    } catch (_) {
-      await ctl.dispose();
-      if (seq == _seq && mounted) setState(() => _failed = true);
     }
+    if (seq == _seq && mounted) setState(() => _failed = true);
   }
 
   void _go(int d) {

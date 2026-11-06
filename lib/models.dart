@@ -18,6 +18,7 @@ class Channel {
   final String referrer;
   final String userAgent;
   final bool geoBlocked;
+  final List<String> alts; // altri indirizzi dello stesso canale, se il primo non va
 
   const Channel({
     required this.id,
@@ -28,10 +29,42 @@ class Channel {
     this.referrer = '',
     this.userAgent = '',
     this.geoBlocked = false,
+    this.alts = const [],
   });
 
-  /// Chiave unica (lo stesso canale può avere più indirizzi).
-  String get key => url;
+  /// Chiave unica: lo stesso canale con più indirizzi è un canale solo.
+  String get key => dedupeKey(id, name);
+
+  List<String> get urls => [url, ...alts];
+
+  /// Stesso canale, con [u] come primo indirizzo (quello che funziona).
+  Channel preferring(String u) => u == url
+      ? this
+      : Channel(
+          id: id,
+          name: name,
+          url: u,
+          logo: logo,
+          group: group,
+          referrer: referrer,
+          userAgent: userAgent,
+          geoBlocked: geoBlocked,
+          alts: [url, ...alts.where((a) => a != u)],
+        );
+
+  Channel withAlt(String u) => urls.contains(u)
+      ? this
+      : Channel(
+          id: id,
+          name: name,
+          url: url,
+          logo: logo,
+          group: group,
+          referrer: referrer,
+          userAgent: userAgent,
+          geoBlocked: geoBlocked,
+          alts: [...alts, u],
+        );
 
   /// Paese dal tvg-id: "CartoonNetwork.us@SD" → "US".
   String get countryCode {
@@ -52,7 +85,8 @@ class Channel {
         if (userAgent.isNotEmpty) 'User-Agent': userAgent,
       };
 
-  List<String> toCompact() => [id, name, url, logo, group, referrer, userAgent, geoBlocked ? '1' : ''];
+  List<String> toCompact() =>
+      [id, name, url, logo, group, referrer, userAgent, geoBlocked ? '1' : '', alts.join('\n')];
 
   static Channel? fromCompact(Object? o) {
     if (o is! List || o.length < 8) return null;
@@ -67,8 +101,17 @@ class Channel {
       referrer: '${o[5]}',
       userAgent: '${o[6]}',
       geoBlocked: o[7] == '1',
+      alts: o.length > 8 && '${o[8]}'.isNotEmpty ? '${o[8]}'.split('\n') : const [],
     );
   }
+}
+
+/// Chiave per riconoscere i doppioni: il tvg-id senza la parte dopo @
+/// ("2M.ma@SD" e "2M.ma@HD" sono lo stesso canale), altrimenti il nome.
+String dedupeKey(String id, String name) {
+  final base = id.split('@').first.trim().toLowerCase();
+  if (base.isNotEmpty) return base;
+  return name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\u00C0-\uFFFF]+'), '');
 }
 
 String _attr(String line, String name) {
@@ -83,10 +126,12 @@ String cleanChannelName(String raw) => raw
     .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
-/// Legge una playlist M3U. Niente canali per adulti, niente doppioni.
+/// Legge una playlist M3U. Niente canali per adulti; i doppioni diventano
+/// un canale solo con più indirizzi (si prova il secondo se il primo non va).
 List<Channel> parseM3u(String text) {
   final out = <Channel>[];
-  final seen = <String>{};
+  final index = <String, int>{};
+  final seenUrl = <String>{};
   String? info;
   var referrer = '', ua = '';
   for (var line in const LineSplitterLite().split(text)) {
@@ -113,7 +158,16 @@ List<Channel> parseM3u(String text) {
         userAgent: ua,
         geoBlocked: rawName.contains('[Geo-blocked]'),
       );
-      if (c.url.startsWith('http') && c.name.isNotEmpty && !c.isAdult && seen.add(c.url)) out.add(c);
+      if (c.url.startsWith('http') && c.name.isNotEmpty && !c.isAdult && seenUrl.add(c.url)) {
+        final k = c.key;
+        final at = index[k];
+        if (at == null) {
+          index[k] = out.length;
+          out.add(c);
+        } else {
+          out[at] = out[at].withAlt(c.url);
+        }
+      }
       info = null;
       referrer = '';
       ua = '';

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'data.dart';
 import 'models.dart';
 import 'player_page.dart';
+import 'probe.dart';
 
 /// Colori di devoo.it: blu notte, giallo per i bambini, azzurro per il mondo.
 const navy = Color(0xFF060A16);
@@ -246,18 +247,24 @@ class SearchBox extends StatelessWidget {
       );
 }
 
-/// Elenco caricato da internet con caricamento, errore e "riprova".
+/// Elenco caricato da internet. Poi ogni canale viene provato dal telefono:
+/// si vedono solo quelli che trasmettono davvero (compaiono man mano).
 class ChannelsLoader extends StatefulWidget {
-  const ChannelsLoader({super.key, required this.url, required this.builder});
+  const ChannelsLoader({super.key, required this.url, required this.builder, this.color = yellow});
   final String url;
+  final Color color;
   final Widget Function(BuildContext, List<Channel>, Future<void> Function() refresh) builder;
   @override
   State<ChannelsLoader> createState() => _ChannelsLoaderState();
 }
 
 class _ChannelsLoaderState extends State<ChannelsLoader> {
-  List<Channel>? _list;
+  List<Channel>? _all;
+  List<Channel> _good = const [];
+  int _done = 0;
+  bool _checking = false;
   bool _error = false;
+  int _run = 0;
 
   @override
   void initState() {
@@ -265,32 +272,106 @@ class _ChannelsLoaderState extends State<ChannelsLoader> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _run++; // ferma il controllo in corso
+    super.dispose();
+  }
+
   Future<void> _load({bool fresh = false}) async {
+    final run = ++_run;
     setState(() => _error = false);
     try {
       final l = await TvData.i.channels(widget.url, fresh: fresh);
-      if (mounted) setState(() => _list = l);
+      if (!mounted || run != _run) return;
+      // quelli già controllati da poco si mostrano subito
+      setState(() {
+        _all = l;
+        _good = const [];
+        _done = 0;
+        _checking = true;
+      });
+      var last = DateTime(2000);
+      final good = await Probe.i.filter(l, (g, done) {
+        if (!mounted || run != _run) return;
+        final now = DateTime.now();
+        if (now.difference(last).inMilliseconds < 300 && done < l.length) return; // non troppi ridisegni
+        last = now;
+        setState(() {
+          _good = g;
+          _done = done;
+        });
+      }, cancelled: () => !mounted || run != _run);
+      if (!mounted || run != _run) return;
+      setState(() {
+        _good = good;
+        _done = l.length;
+        _checking = false;
+      });
     } catch (_) {
-      if (mounted) setState(() => _error = true);
+      if (mounted && run == _run) setState(() => _error = true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final l = _list;
-    if (l != null) return widget.builder(context, l, () => _load(fresh: true));
+    final all = _all;
+    if (all != null) {
+      if (!_checking && _good.isEmpty) {
+        return BigMessage(
+          emoji: '📡',
+          text: all.isEmpty ? 'Nessun canale qui.' : 'Adesso nessuno di questi canali trasmette. Riprova più tardi.',
+          action: FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: widget.color, foregroundColor: navy),
+            onPressed: () => _load(fresh: true),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Riprova'),
+          ),
+        );
+      }
+      return Column(
+        children: [
+          if (_checking)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Controllo quali canali trasmettono… $_done / ${all.length}',
+                      style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: 13)),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: all.isEmpty ? null : _done / all.length,
+                      minHeight: 5,
+                      color: widget.color,
+                      backgroundColor: card,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: _good.isEmpty
+                ? Center(child: CircularProgressIndicator(color: widget.color))
+                : widget.builder(context, _good, () => _load(fresh: true)),
+          ),
+        ],
+      );
+    }
     if (_error) {
       return BigMessage(
         emoji: '📡',
         text: 'Nessuna connessione. Controlla internet e riprova.',
         action: FilledButton.icon(
-          style: FilledButton.styleFrom(backgroundColor: yellow, foregroundColor: navy),
+          style: FilledButton.styleFrom(backgroundColor: widget.color, foregroundColor: navy),
           onPressed: _load,
           icon: const Icon(Icons.refresh),
           label: const Text('Riprova'),
         ),
       );
     }
-    return const Center(child: CircularProgressIndicator(color: yellow));
+    return Center(child: CircularProgressIndicator(color: widget.color));
   }
 }

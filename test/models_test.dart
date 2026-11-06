@@ -26,6 +26,26 @@ void main() {
     expect(l[1].headers, {'Referer': 'https://ref.example/', 'User-Agent': 'Mozilla/5.0'});
   });
 
+  test('doppioni: un canale solo con più indirizzi', () {
+    const t = '''#EXTM3U
+#EXTINF:-1 tvg-id="2M.ma@SD" group-title="General",2M (720p)
+https://a.example/2m-1.m3u8
+#EXTINF:-1 tvg-id="2M.ma@HD" group-title="General",2M (1080p)
+https://a.example/2m-2.m3u8
+#EXTINF:-1 tvg-id="" group-title="General",Canale Senza Id
+https://a.example/x1.m3u8
+#EXTINF:-1 tvg-id="" group-title="General",Canale senza id
+https://a.example/x2.m3u8
+''';
+    final l = parseM3u(t);
+    expect(l.length, 2);
+    expect(l[0].urls, ['https://a.example/2m-1.m3u8', 'https://a.example/2m-2.m3u8']);
+    expect(l[0].preferring('https://a.example/2m-2.m3u8').urls.first, 'https://a.example/2m-2.m3u8');
+    expect(l[0].preferring('https://a.example/2m-2.m3u8').key, l[0].key);
+    expect(Channel.fromCompact(l[0].toCompact())!.alts, ['https://a.example/2m-2.m3u8']);
+    expect(l[1].alts.length, 1);
+  });
+
   test('salvataggio compatto', () {
     final c = parseM3u(_m3u).first;
     final back = Channel.fromCompact(c.toCompact())!;
