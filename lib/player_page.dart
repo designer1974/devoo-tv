@@ -7,6 +7,8 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import 'data.dart';
 import 'models.dart';
+import 'rec_pages.dart';
+import 'recording.dart';
 import 'ui.dart';
 
 Future<void> openPlayer(BuildContext context, List<Channel> list, int index, {required bool kids}) =>
@@ -36,8 +38,6 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _failed = false;
   bool _buffering = false;
   bool _controls = true;
-  Tracks _tracks = Tracks();
-  Track _track = Track();
 
   // Come si vede il video:
   // 0 normale (bande nere), 1 schermo intero (allargato, non taglia logo e sottotitoli), 2 zoom (taglia i bordi)
@@ -49,21 +49,40 @@ class _PlayerPageState extends State<PlayerPage> {
   int _seq = 0;
 
   Channel get _c => widget.list[_i];
+  bool get _live => _c.url.startsWith('http'); // le registrazioni (file) non si riregistrano
+  Orientation? _lastO;
+  final _listScroll = ScrollController();
+
+  /// Schermo intero: gira in orizzontale.
+  void _landscape() {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+  }
+
+  /// Torna in verticale.
+  void _portrait() {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  }
+
+  void _onOrientation(Orientation o) {
+    if (o == _lastO) return;
+    _lastO = o;
+    SystemChrome.setEnabledSystemUIMode(o == Orientation.landscape ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+    if (o == Orientation.portrait) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_listScroll.hasClients) {
+          _listScroll.jumpTo((_i * 72.0).clamp(0, _listScroll.position.maxScrollExtent));
+        }
+      });
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values); // verticale e orizzontale
     _subs
-      ..add(_player.stream.buffering.listen((b) {
+      .add(_player.stream.buffering.listen((b) {
         if (mounted) setState(() => _buffering = b);
-      }))
-      ..add(_player.stream.tracks.listen((t) {
-        if (mounted) setState(() => _tracks = t);
-      }))
-      ..add(_player.stream.track.listen((t) {
-        if (mounted) setState(() => _track = t);
       }));
     _open();
   }
@@ -77,6 +96,7 @@ class _PlayerPageState extends State<PlayerPage> {
       s.cancel();
     }
     _player.dispose();
+    _listScroll.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
@@ -159,82 +179,13 @@ class _PlayerPageState extends State<PlayerPage> {
     });
   }
 
-  // tracce vere (senza le voci "auto" e "no" che aggiunge il lettore)
-  List<SubtitleTrack> get _subTracks => _tracks.subtitle.where((t) => t.id != 'auto' && t.id != 'no').toList();
-  List<AudioTrack> get _audioTracks => _tracks.audio.where((t) => t.id != 'auto' && t.id != 'no').toList();
-  bool get _subsOn => _track.subtitle.id != 'no' && _subTracks.any((t) => t.id == _track.subtitle.id);
-
-  String _name(String? title, String? lang, int n) {
-    final parts = [if (title != null && title.isNotEmpty) title, if (lang != null && lang.isNotEmpty) lang.toUpperCase()];
-    return parts.isEmpty ? 'Traccia $n' : parts.join(' · ');
-  }
-
-  /// Pulsante CC: accende/spegne i sottotitoli e sceglie la lingua (anche dell'audio).
-  Future<void> _subtitles() async {
-    _hide?.cancel();
-    final subs = _subTracks, audio = _audioTracks;
-    if (subs.isEmpty && audio.length < 2) {
-      _say('Questo canale non ha sottotitoli');
-      _showControls();
-      return;
-    }
-    final acc = accentOf(widget.kids);
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: navy2,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (c) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(c).size.height * 0.85),
-          child: ListView(
-            shrinkWrap: true,
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(12, 0, 12, 6),
-                child: Text('💬 Sottotitoli', style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900)),
-              ),
-              if (subs.isEmpty)
-                const ListTile(
-                  title: Text('Questo canale non ha sottotitoli', style: TextStyle(color: Colors.white60)),
-                )
-              else ...[
-                _choice(c, 'Spenti', !_subsOn, acc, () => _player.setSubtitleTrack(SubtitleTrack.no())),
-                for (var n = 0; n < subs.length; n++)
-                  _choice(c, _name(subs[n].title, subs[n].language, n + 1), _subsOn && _track.subtitle.id == subs[n].id,
-                      acc, () => _player.setSubtitleTrack(subs[n])),
-              ],
-              if (audio.length > 1) ...[
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(12, 14, 12, 6),
-                  child: Text('🔊 Lingua audio',
-                      style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900)),
-                ),
-                for (var n = 0; n < audio.length; n++)
-                  _choice(c, _name(audio[n].title, audio[n].language, n + 1), _track.audio.id == audio[n].id, acc,
-                      () => _player.setAudioTrack(audio[n])),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-    _showControls();
-  }
-
-  Widget _choice(BuildContext c, String label, bool on, Color acc, Future<void> Function() pick) => ListTile(
-        leading: Icon(on ? Icons.radio_button_checked : Icons.radio_button_off, color: on ? acc : Colors.white54),
-        title: Text(label,
-            style: TextStyle(color: Colors.white, fontWeight: on ? FontWeight.w900 : FontWeight.w600, fontSize: 16)),
-        onTap: () {
-          pick();
-          Navigator.pop(c);
-        },
-      );
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => OrientationBuilder(builder: (context, o) {
+        _onOrientation(o);
+        return o == Orientation.landscape ? _landscapeView(context) : _portraitView(context);
+      });
+
+  Widget _landscapeView(BuildContext context) {
     final acc = accentOf(widget.kids);
     return Scaffold(
       backgroundColor: Colors.black,
@@ -254,16 +205,6 @@ class _PlayerPageState extends State<PlayerPage> {
                 controls: NoVideoControls,
                 fill: Colors.black,
                 fit: const [BoxFit.contain, BoxFit.fill, BoxFit.cover][_fit],
-                subtitleViewConfiguration: const SubtitleViewConfiguration(
-                  style: TextStyle(
-                    fontSize: 30,
-                    height: 1.3,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    backgroundColor: Color(0xAA000000),
-                  ),
-                  padding: EdgeInsets.fromLTRB(24, 0, 24, 28),
-                ),
               ),
             ),
             if (_failed)
@@ -305,9 +246,144 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
+  /// Verticale: video in alto, sotto i pulsanti e l'elenco dei canali.
+  Widget _portraitView(BuildContext context) {
+    final acc = accentOf(widget.kids);
+    final c = _c;
+    Widget action(IconData icon, String label, VoidCallback tap, {Color? color}) => Expanded(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: tap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icon, color: color ?? Colors.white, size: 28),
+                const SizedBox(height: 4),
+                Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ),
+        );
+    return Scaffold(
+      backgroundColor: navy,
+      body: SafeArea(
+        child: ListenableBuilder(
+          listenable: Favorites.i,
+          builder: (context, _) {
+            final fav = Favorites.i.isFav(c, widget.kids);
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
+                  child: Row(children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                    ),
+                    ChannelLogo(c, size: 38, radius: 10),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text('${c.flag} ${c.name}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17)),
+                    ),
+                    IconButton(
+                      onPressed: () => Favorites.i.toggle(c, widget.kids),
+                      icon: Icon(fav ? Icons.favorite : Icons.favorite_border,
+                          color: fav ? const Color(0xFFFF4D6D) : Colors.white),
+                    ),
+                  ]),
+                ),
+                GestureDetector(
+                  onDoubleTap: _landscape,
+                  onHorizontalDragEnd: (d) {
+                    final v = d.primaryVelocity ?? 0;
+                    if (v.abs() > 300) _go(v < 0 ? 1 : -1);
+                  },
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Container(
+                      color: Colors.black,
+                      child: Stack(children: [
+                        Positioned.fill(
+                          child: Video(controller: _video, controls: NoVideoControls, fill: Colors.black, fit: BoxFit.contain),
+                        ),
+                        if (_failed)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                                Text(c.geoBlocked ? '📡 Si vede solo nel suo paese' : '📡 Non trasmette adesso',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                                const SizedBox(height: 10),
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(backgroundColor: acc, foregroundColor: navy),
+                                  onPressed: () => _go(1),
+                                  icon: const Icon(Icons.skip_next_rounded),
+                                  label: const Text('Prossimo canale'),
+                                ),
+                              ]),
+                            ),
+                          )
+                        else if (!_ready || _buffering)
+                          Center(child: CircularProgressIndicator(color: acc)),
+                      ]),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 6, 6, 2),
+                  child: Row(children: [
+                    if (widget.list.length > 1) action(Icons.skip_previous_rounded, 'Precedente', () => _go(-1)),
+                    if (_live) action(Icons.fiber_manual_record_rounded, 'Registra', () => recordNow(context, c, kids: widget.kids), color: recRed),
+                    if (_live) action(Icons.alarm_add_rounded, 'Programma', () => openScheduleEditor(context, c, kids: widget.kids)),
+                    action(Icons.fullscreen_rounded, 'Schermo intero', _landscape, color: acc),
+                    if (widget.list.length > 1) action(Icons.skip_next_rounded, 'Successivo', () => _go(1)),
+                  ]),
+                ),
+                const Divider(color: Colors.white12, height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    controller: _listScroll,
+                    itemCount: widget.list.length,
+                    itemExtent: 72,
+                    itemBuilder: (_, i) {
+                      final x = widget.list[i];
+                      final on = i == _i;
+                      return ListTile(
+                        selected: on,
+                        selectedTileColor: acc.withValues(alpha: 0.14),
+                        leading: ChannelLogo(x, size: 46, radius: 12),
+                        title: Text(x.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: on ? acc : Colors.white, fontWeight: FontWeight.w800)),
+                        subtitle: x.countryCode.isEmpty ? null : Text(x.flag),
+                        trailing: on ? Icon(Icons.equalizer_rounded, color: acc) : null,
+                        onTap: () {
+                          if (i == _i) return;
+                          setState(() => _i = i);
+                          _open();
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _overlay(Color acc) {
     final c = _c;
-    final hasSubs = _subTracks.isNotEmpty || _audioTracks.length > 1;
     return ListenableBuilder(
       listenable: Favorites.i,
       builder: (context, _) {
@@ -345,16 +421,18 @@ class _PlayerPageState extends State<PlayerPage> {
                               shadows: [Shadow(blurRadius: 8)],
                             )),
                       ),
-                      // sottotitoli: acceso = colorato, spento = bianco, non disponibili = grigio
-                      round(_subsOn ? Icons.closed_caption_rounded : Icons.closed_caption_off_outlined, _subtitles,
-                          size: 30, color: _subsOn ? acc : (hasSubs ? Colors.white : Colors.white38)),
-                      const SizedBox(width: 10),
+                      if (_live) ...[
+                        _RecButton(onTap: () => recordNow(context, c, kids: widget.kids)),
+                        const SizedBox(width: 10),
+                      ],
                       round(const [Icons.fullscreen_rounded, Icons.zoom_in_rounded, Icons.fullscreen_exit_rounded][_fit],
                           _toggleFill,
                           size: 30),
                       const SizedBox(width: 10),
                       round(fav ? Icons.favorite : Icons.favorite_border, () => Favorites.i.toggle(c, widget.kids),
                           size: 28),
+                      const SizedBox(width: 10),
+                      round(Icons.stay_current_portrait_rounded, _portrait, size: 28),
                     ],
                   ),
                 ),
@@ -381,4 +459,32 @@ class _PlayerPageState extends State<PlayerPage> {
       },
     );
   }
+}
+
+
+/// Pulsante 🔴: rosso pieno mentre si registra.
+class _RecButton extends StatelessWidget {
+  const _RecButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Schedules.i,
+        builder: (context, _) {
+          final on = Schedules.i.recording;
+          return Material(
+            color: on ? recRed : Colors.black54,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: on ? Schedules.i.stop : onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Icon(on ? Icons.stop_rounded : Icons.fiber_manual_record_rounded,
+                    color: on ? Colors.white : recRed, size: 28),
+              ),
+            ),
+          );
+        },
+      );
 }

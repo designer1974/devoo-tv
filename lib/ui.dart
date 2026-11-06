@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import 'data.dart';
+import 'hidden.dart';
 import 'models.dart';
 import 'player_page.dart';
 import 'probe.dart';
+import 'rec_pages.dart';
 
 /// Colori di devoo.it: blu notte, giallo per i bambini, azzurro per il mondo.
 const navy = Color(0xFF060A16);
@@ -87,7 +89,7 @@ class ChannelCard extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: () => openPlayer(context, list, index, kids: kids),
-            onLongPress: () => Favorites.i.toggle(c, kids),
+            onLongPress: () => showChannelMenu(context, c, kids: kids),
             child: Padding(
               padding: const EdgeInsets.all(10),
               child: Column(
@@ -250,9 +252,11 @@ class SearchBox extends StatelessWidget {
 /// Elenco caricato da internet. Poi ogni canale viene provato dal telefono:
 /// si vedono solo quelli che trasmettono davvero (compaiono man mano).
 class ChannelsLoader extends StatefulWidget {
-  const ChannelsLoader({super.key, required this.url, required this.builder, this.color = yellow});
+  const ChannelsLoader(
+      {super.key, required this.url, required this.builder, this.color = yellow, this.noKids = false});
   final String url;
   final Color color;
+  final bool noKids; // Mondo: i canali per bambini stanno solo nella parte Kids
   final Widget Function(BuildContext, List<Channel>, Future<void> Function() refresh) builder;
   @override
   State<ChannelsLoader> createState() => _ChannelsLoaderState();
@@ -355,7 +359,17 @@ class _ChannelsLoaderState extends State<ChannelsLoader> {
           Expanded(
             child: _good.isEmpty
                 ? Center(child: CircularProgressIndicator(color: widget.color))
-                : widget.builder(context, _good, () => _load(fresh: true)),
+                : ListenableBuilder(
+                    listenable: Hidden.i,
+                    builder: (context, _) {
+                      final base = widget.noKids ? _good.where((c) => !c.isKids).toList() : _good;
+                      final list = Hidden.i.filter(base);
+                      if (list.isEmpty && !_checking) {
+                        return const BigMessage(emoji: '🙈', text: 'Nessun canale da mostrare qui.');
+                      }
+                      return widget.builder(context, list, () => _load(fresh: true));
+                    },
+                  ),
           ),
         ],
       );
@@ -374,4 +388,52 @@ class _ChannelsLoaderState extends State<ChannelsLoader> {
     }
     return Center(child: CircularProgressIndicator(color: widget.color));
   }
+}
+
+
+/// Tenendo premuto su un canale: preferito, registra, programma, nascondi.
+Future<void> showChannelMenu(BuildContext context, Channel c, {required bool kids}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: navy2,
+    showDragHandle: true,
+    builder: (s) {
+      final fav = Favorites.i.isFav(c, kids);
+      Widget item(String emoji, String label, VoidCallback tap) => ListTile(
+            leading: Text(emoji, style: const TextStyle(fontSize: 26)),
+            title: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17)),
+            onTap: () {
+              Navigator.pop(s);
+              tap();
+            },
+          );
+      return SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: ChannelLogo(c, size: 48, radius: 12),
+                title: Text(c.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
+                subtitle: c.countryCode.isEmpty ? null : Text(c.flag, style: const TextStyle(fontSize: 16)),
+              ),
+              const Divider(color: Colors.white12),
+              item(fav ? '💔' : '❤️', fav ? 'Togli dai preferiti' : 'Aggiungi ai preferiti',
+                  () => Favorites.i.toggle(c, kids)),
+              item('🔴', 'Registra adesso', () => recordNow(context, c, kids: kids)),
+              item('⏰', 'Programma registrazione', () => openScheduleEditor(context, c, kids: kids)),
+              item('🙈', 'Nascondi questo canale', () {
+                Hidden.i.hideChannel(c);
+                snack(context, '«${c.name}» nascosto. Lo rimetti da «Nascosti».');
+              }),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }

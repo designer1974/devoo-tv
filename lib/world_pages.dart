@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'data.dart';
+import 'hidden.dart';
 import 'models.dart';
 import 'probe.dart';
 import 'ui.dart';
@@ -30,6 +31,7 @@ class _ChannelListPageState extends State<ChannelListPage> {
       ),
       body: ChannelsLoader(
         url: widget.url,
+        noKids: true,
         color: sky,
         builder: (context, all, refresh) {
           final q = _q.toLowerCase();
@@ -115,7 +117,7 @@ class _SearchResultsState extends State<SearchResults> {
     final run = ++_run;
     final q = widget.query;
     final words = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-    final found = all.where((c) {
+    final found = Hidden.i.filter(all.where((c) => !c.isKids).toList()).where((c) {
       final n = c.name.toLowerCase();
       return words.every(n.contains);
     }).toList()

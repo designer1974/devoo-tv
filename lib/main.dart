@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'data.dart';
+import 'hidden.dart';
 import 'shell.dart';
 import 'ui.dart';
 
@@ -12,6 +13,7 @@ Future<void> main() async {
   ErrorWidget.builder = (_) => const SizedBox.shrink(); // un errore in un riquadro non chiude l'app
   try {
     await Favorites.i.init().timeout(const Duration(seconds: 4));
+    await Hidden.i.init().timeout(const Duration(seconds: 4));
   } catch (_) {}
   runApp(const DevooTvApp());
 }

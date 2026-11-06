@@ -63,24 +63,26 @@ https://a.example/a.m3u8
     expect(l[0].urls.length, 3);
   });
 
-  test('esclusi film, serie, sport e 24/7; lista nera', () {
+  test('tutte le categorie restano; lista nera; kids riconosciuti', () {
     const t = '''#EXTM3U
 #EXTINF:-1 tvg-id="Film.it@SD" group-title="Movies",Film TV
 https://a.example/f.m3u8
-#EXTINF:-1 tvg-id="Toon.us@SD" group-title="Animation;Kids",Cartoon 24/7
-https://a.example/t.m3u8
-#EXTINF:-1 tvg-id="Sport.it@SD" group-title="Sports",Sport TV
-https://a.example/s.m3u8
-#EXTINF:-1 tvg-id="Yoyo.it@SD" group-title="Kids",Yoyo
+#EXTINF:-1 tvg-id="Yoyo.it@SD" group-title="Animation;Kids",Yoyo
 https://a.example/y.m3u8
 #EXTINF:-1 tvg-id="Tg.it@SD" group-title="News",Tg
 https://bad.example/tg.m3u8
 ''';
     final l = parseM3u(t);
-    expect(l.map((c) => c.name), ['Yoyo', 'Tg']);
+    expect(l.map((c) => c.name), ['Film TV', 'Yoyo', 'Tg']);
+    expect(l[1].isKids, isTrue);
+    expect(l[0].isKids, isFalse);
     final block = parseBlocklist('# commento\nyoyo.it\nhttps://bad.example/\n');
-    expect(l.where((c) => !isBlocked(c, block)), isEmpty);
-    expect(isBlocked(l[0], parseBlocklist('Altro')), isFalse);
+    expect(l.where((c) => !isBlocked(c, block)).map((c) => c.name), ['Film TV']);
+  });
+
+  test('categorie in gruppi', () {
+    expect(worldCategories.any((c) => c.$1 == 'series'), isTrue);
+    expect(worldCategories.any((c) => c.$1 == 'kids'), isFalse);
   });
 
   test('salvataggio compatto', () {

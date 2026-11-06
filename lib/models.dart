@@ -84,6 +84,9 @@ class Channel {
     return n.contains('24/7') || n.contains('24-7') || n.contains('24x7');
   }
 
+  /// Canale per bambini: nel Mondo non compare (sta nella parte Kids).
+  bool get isKids => group.toLowerCase().split(';').any((g) => g.trim() == 'kids');
+
   bool get isAdult {
     final t = '$name $group'.toLowerCase();
     return t.contains('xxx') || t.contains('adult') || t.contains('erotic') || t.contains('porn');
@@ -167,7 +170,7 @@ List<Channel> parseM3u(String text) {
         userAgent: ua,
         geoBlocked: rawName.contains('[Geo-blocked]'),
       );
-      if (c.url.startsWith('http') && c.name.isNotEmpty && !c.isAdult && !c.isRisky && seenUrl.add(c.url)) {
+      if (c.url.startsWith('http') && c.name.isNotEmpty && !c.isAdult && seenUrl.add(c.url)) {
         final k = c.key;
         final at = index[k];
         if (at == null) {
@@ -230,31 +233,53 @@ class Country {
   String get flag => flagEmoji(code);
 }
 
-/// Le categorie del mondo (iptv-org). Niente "xxx".
-const worldCategories = <(String, String, String)>[
-  ('news', '📰', 'Notizie'),
-  ('general', '📺', 'Generali'),
-  ('entertainment', '🎭', 'Intrattenimento'),
-  ('music', '🎵', 'Musica'),
-  ('documentary', '🦁', 'Documentari'),
-  ('education', '🎓', 'Educazione'),
-  ('science', '🔬', 'Scienza'),
-  ('culture', '🏛️', 'Cultura'),
-  ('cooking', '🍝', 'Cucina'),
-  ('travel', '✈️', 'Viaggi'),
-  ('outdoor', '🏕️', 'Natura'),
-  ('comedy', '😂', 'Comici'),
-  ('animation', '🎨', 'Animazione'),
-  ('family', '👨‍👩‍👧', 'Famiglia'),
-  ('lifestyle', '💄', 'Stile'),
-  ('business', '💼', 'Economia'),
-  ('weather', '⛅', 'Meteo'),
-  ('religious', '🕌', 'Religione'),
-  ('legislative', '🏛', 'Parlamento'),
-  ('auto', '🚗', 'Motori'),
-  ('relax', '🌊', 'Relax'),
-  ('shop', '🛍️', 'Shopping'),
+/// Le categorie del mondo (iptv-org), divise in gruppi. Niente "xxx" e niente "kids"
+/// (i canali per bambini stanno nella parte Kids).
+const worldCategoryGroups = <(String, List<(String, String, String)>)>[
+  ('📰 Informazione', [
+    ('news', '📰', 'Notizie'),
+    ('business', '💼', 'Economia'),
+    ('weather', '⛅', 'Meteo'),
+    ('legislative', '🏛', 'Parlamento'),
+  ]),
+  ('🎬 Film e serie', [
+    ('movies', '🎬', 'Film'),
+    ('series', '🎞️', 'Serie'),
+    ('classic', '📼', 'Classici'),
+    ('comedy', '😂', 'Comici'),
+    ('animation', '🎨', 'Animazione'),
+  ]),
+  ('📺 Intrattenimento', [
+    ('general', '📺', 'Generali'),
+    ('entertainment', '🎭', 'Intrattenimento'),
+    ('family', '👨‍👩‍👧', 'Famiglia'),
+    ('lifestyle', '💄', 'Stile'),
+    ('shop', '🛍️', 'Shopping'),
+  ]),
+  ('⚽ Sport e motori', [
+    ('sports', '⚽', 'Sport'),
+    ('auto', '🚗', 'Motori'),
+    ('outdoor', '🏕️', 'Natura e avventura'),
+  ]),
+  ('🎵 Musica e relax', [
+    ('music', '🎵', 'Musica'),
+    ('relax', '🌊', 'Relax'),
+  ]),
+  ('🎓 Cultura e scienza', [
+    ('documentary', '🦁', 'Documentari'),
+    ('education', '🎓', 'Educazione'),
+    ('science', '🔬', 'Scienza'),
+    ('culture', '🏛️', 'Cultura'),
+    ('travel', '✈️', 'Viaggi'),
+    ('cooking', '🍝', 'Cucina'),
+  ]),
+  ('🕌 Religione', [
+    ('religious', '🕌', 'Religione'),
+  ]),
 ];
+
+/// Tutte le categorie in un elenco solo.
+final worldCategories = [for (final g in worldCategoryGroups) ...g.$2];
 
 /// Paesi di riserva se l'elenco online non si carica.
 const fallbackCountries = <Country>[

@@ -8,6 +8,11 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        try { Scheduler.refreshStandby(this) } catch (_: Exception) {}
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tv/app").setMethodCallHandler { call, result ->
@@ -25,6 +30,72 @@ class MainActivity : FlutterActivity() {
                             false
                         }
                         result.success(ok)
+                    }
+                    // ---- registrazioni (fatte dal servizio, anche ad app chiusa) ----
+                    "recStatus" -> result.success(
+                        mapOf(
+                            "busy" to HlsRecorder.busy,
+                            "running" to HlsRecorder.running,
+                            "bytes" to HlsRecorder.bytes,
+                            "startedAt" to HlsRecorder.startedAt,
+                            "error" to HlsRecorder.error,
+                            "schedId" to ScheduledRecService.activeId,
+                            "schedName" to ScheduledRecService.activeName,
+                            "schedEnd" to ScheduledRecService.activeEnd,
+                        )
+                    )
+                    "schedAdd" -> {
+                        val m = call.arguments as Map<*, *>
+                        val j = org.json.JSONObject()
+                        for ((k, v) in m) j.put(k.toString(), v)
+                        Scheduler.add(this, j)
+                        result.success(null)
+                    }
+                    "schedList" -> {
+                        val a = Scheduler.list(this)
+                        result.success((0 until a.length()).map { i ->
+                            val o = a.getJSONObject(i)
+                            o.keys().asSequence().associateWith { k -> o.get(k) }
+                        })
+                    }
+                    "schedRemove" -> {
+                        val id = call.argument<String>("id")!!
+                        if (Scheduler.get(this, id)?.optBoolean("running") == true) {
+                            try {
+                                startService(Intent(this, ScheduledRecService::class.java).setAction(ScheduledRecService.ACTION_STOP))
+                            } catch (_: Exception) {}
+                        }
+                        Scheduler.remove(this, id)
+                        result.success(null)
+                    }
+                    "schedStop" -> {
+                        try {
+                            startService(Intent(this, ScheduledRecService::class.java).setAction(ScheduledRecService.ACTION_STOP))
+                        } catch (_: Exception) {}
+                        result.success(null)
+                    }
+                    "schedExactOk" -> result.success(Scheduler.exactAllowed(this))
+                    "schedExactSettings" -> {
+                        if (Build.VERSION.SDK_INT >= 31) {
+                            try {
+                                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                    Uri.parse("package:$packageName")))
+                            } catch (_: Exception) {}
+                        }
+                        result.success(null)
+                    }
+                    "batteryOk" -> {
+                        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+                        result.success(Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(packageName))
+                    }
+                    "batteryAsk" -> {
+                        if (Build.VERSION.SDK_INT >= 23) {
+                            try {
+                                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    Uri.parse("package:$packageName")))
+                            } catch (_: Exception) {}
+                        }
+                        result.success(null)
                     }
                     "installStatus" -> {
                         val p = getSharedPreferences("tv_update", MODE_PRIVATE)

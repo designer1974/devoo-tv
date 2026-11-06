@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'data.dart';
+import 'hidden.dart';
 import 'legal.dart';
 import 'models.dart';
 import 'pin.dart';
+import 'rec_pages.dart';
+import 'recording.dart';
 import 'ui.dart';
 import 'update.dart';
 import 'world_pages.dart';
@@ -32,13 +37,21 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _life.hashCode; // avvia l'ascolto
+    _recMsgs = Schedules.i.messages.listen((m) {
+      if (mounted) snack(context, m);
+    });
+    Recordings.i.reload();
+    Schedules.i.reload();
     Future<void>.delayed(const Duration(seconds: 5), () {
       if (mounted) checkForUpdate(context);
     });
   }
 
+  StreamSubscription<String>? _recMsgs;
+
   @override
   void dispose() {
+    _recMsgs?.cancel();
     _life.dispose();
     super.dispose();
   }
@@ -60,20 +73,33 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final acc = accentOf(!_world);
     final pages = _world
-        ? const [WorldCountriesPage(), WorldCategoriesPage(), SearchPage(kids: false), FavoritesPage(kids: false)]
-        : const [KidsHomePage(), SearchPage(kids: true), FavoritesPage(kids: true)];
+        ? const [
+            WorldCountriesPage(),
+            WorldCategoriesPage(),
+            SearchPage(kids: false),
+            FavoritesPage(kids: false),
+            RecordingsPage(kids: false, top: TopTitle(kids: false, title: 'Registrate')),
+          ]
+        : const [
+            KidsHomePage(),
+            SearchPage(kids: true),
+            FavoritesPage(kids: true),
+            RecordingsPage(kids: true, top: TopTitle(kids: true, title: 'Registrate')),
+          ];
     final items = _world
         ? const [
             _Item(Icons.flag_outlined, Icons.flag, 'Paesi'),
             _Item(Icons.grid_view_outlined, Icons.grid_view_rounded, 'Categorie'),
             _Item(Icons.search, Icons.search, 'Cerca'),
             _Item(Icons.favorite_border, Icons.favorite, 'Preferiti'),
+            _Item(Icons.video_library_outlined, Icons.video_library_rounded, 'Registrate'),
             _Item(Icons.child_care_outlined, Icons.child_care, 'Kids'),
           ]
         : const [
             _Item(Icons.home_outlined, Icons.home_rounded, 'Kids'),
             _Item(Icons.search, Icons.search, 'Cerca'),
             _Item(Icons.favorite_border, Icons.favorite, 'Preferiti'),
+            _Item(Icons.video_library_outlined, Icons.video_library_rounded, 'Registrate'),
             _Item(Icons.lock_outline_rounded, Icons.lock_open_rounded, 'Mondo'),
           ];
     return PopScope(
@@ -94,19 +120,25 @@ class _AppShellState extends State<AppShell> {
           index: _tab.clamp(0, pages.length - 1),
           children: pages,
         ),
-        bottomNavigationBar: _Footer(
-          items: items,
-          selected: _tab,
-          accent: acc,
-          world: _world,
-          onTap: (i) {
-            if (i == pages.length) {
-              // ultimo pulsante: cambia modalità
-              _world ? _goKids() : _goWorld();
-            } else {
-              setState(() => _tab = i);
-            }
-          },
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const RecBanner(),
+            _Footer(
+              items: items,
+              selected: _tab,
+              accent: acc,
+              world: _world,
+              onTap: (i) {
+                if (i == pages.length) {
+                  // ultimo pulsante: cambia modalità
+                  _world ? _goKids() : _goWorld();
+                } else {
+                  setState(() => _tab = i);
+                }
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -169,7 +201,7 @@ class _Footer extends StatelessWidget {
           children: [
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              padding: EdgeInsets.symmetric(horizontal: items.length > 5 ? 10 : 16, vertical: 6),
               decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(18)),
               child: Icon(on ? it.selectedIcon : it.icon, color: fg, size: 26),
             ),
@@ -180,7 +212,7 @@ class _Footer extends StatelessWidget {
                 style: TextStyle(
                   color: on || switchMode ? Colors.white : Colors.white60,
                   fontWeight: on || switchMode ? FontWeight.w900 : FontWeight.w700,
-                  fontSize: 12.5,
+                  fontSize: items.length > 5 ? 11 : 12.5,
                 )),
           ],
         ),
@@ -396,6 +428,7 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
             if (c.countryCode.isNotEmpty) byCountry.putIfAbsent(c.countryCode, () => []).add(c);
           }
           final codes = byCountry.keys
+              .where((k) => !Hidden.i.country(k))
               .where((k) => _q.isEmpty || CountryNames.of(k).toLowerCase().contains(_q) || k.toLowerCase() == _q)
               .toList()
             ..sort((a, b) => CountryNames.of(a).compareTo(CountryNames.of(b)));
@@ -407,6 +440,7 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
               final cc = codes[i];
               final l = byCountry[cc]!;
               return _CountryTile(
+                code: cc,
                 flag: flagEmoji(cc),
                 name: CountryNames.of(cc),
                 count: l.length,
@@ -430,11 +464,18 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
   Widget _worldCountries() {
     final all = _countries;
     if (all == null) return const Center(child: CircularProgressIndicator(color: sky));
-    final list = _q.isEmpty ? all : all.where((c) => c.name.toLowerCase().contains(_q) || c.code == _q).toList();
+    return ListenableBuilder(
+      listenable: Hidden.i,
+      builder: (context, _) {
+    final list = all
+        .where((c) => !Hidden.i.country(c.code))
+        .where((c) => _q.isEmpty || c.name.toLowerCase().contains(_q) || c.code == _q)
+        .toList();
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 20),
       itemCount: list.length,
       itemBuilder: (_, i) => _CountryTile(
+        code: list[i].code,
         flag: list[i].flag,
         name: list[i].name,
         color: sky,
@@ -442,6 +483,8 @@ class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateM
           builder: (_) => ChannelListPage(title: '${list[i].flag} ${list[i].name}', url: TvData.countryUrl(list[i].code)),
         )),
       ),
+    );
+      },
     );
   }
 }
@@ -466,7 +509,9 @@ class _FixedListPage extends StatelessWidget {
 }
 
 class _CountryTile extends StatelessWidget {
-  const _CountryTile({required this.flag, required this.name, required this.color, required this.onTap, this.count});
+  const _CountryTile(
+      {required this.flag, required this.name, required this.color, required this.onTap, this.count, this.code});
+  final String? code; // per nasconderlo tenendo premuto
   final String flag;
   final String name;
   final int? count;
@@ -490,6 +535,26 @@ class _CountryTile extends StatelessWidget {
           ],
         ),
         onTap: onTap,
+        onLongPress: code == null
+            ? null
+            : () async {
+                final ok = await showModalBottomSheet<bool>(
+                  context: context,
+                  backgroundColor: navy2,
+                  showDragHandle: true,
+                  builder: (s) => SafeArea(
+                    child: ListTile(
+                      leading: const Text('🙈', style: TextStyle(fontSize: 26)),
+                      title: Text('Nascondi $flag $name',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17)),
+                      subtitle: const Text('Lo rimetti quando vuoi da «Nascosti»',
+                          style: TextStyle(color: Colors.white60)),
+                      onTap: () => Navigator.pop(s, true),
+                    ),
+                  ),
+                );
+                if (ok == true) Hidden.i.hideCountry(code!);
+              },
       );
 }
 
@@ -574,8 +639,10 @@ class _WorldCountriesPageState extends State<WorldCountriesPage> {
                 if (v == 'pin') changePin(context);
                 if (v == 'update') checkForUpdateNow(context);
                 if (v == 'legal') openLegal(context);
+                if (v == 'hidden') openHidden(context);
               },
               itemBuilder: (_) => const [
+                PopupMenuItem(value: 'hidden', child: Text('🙈 Nascosti', style: TextStyle(color: Colors.white))),
                 PopupMenuItem(value: 'legal', child: Text('⚖️ Note legali', style: TextStyle(color: Colors.white))),
                 PopupMenuItem(value: 'pin', child: Text('🔑 Cambia PIN', style: TextStyle(color: Colors.white))),
                 PopupMenuItem(value: 'update', child: Text('🔄 Cerca aggiornamenti', style: TextStyle(color: Colors.white))),
@@ -585,17 +652,34 @@ class _WorldCountriesPageState extends State<WorldCountriesPage> {
           Expanded(
             child: all == null
                 ? const Center(child: CircularProgressIndicator(color: sky))
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 20),
-                    itemCount: all.length,
-                    itemBuilder: (_, i) => _CountryTile(
-                      flag: all[i].flag,
-                      name: all[i].name,
-                      color: sky,
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => ChannelListPage(title: '${all[i].flag} ${all[i].name}', url: TvData.countryUrl(all[i].code)),
-                      )),
-                    ),
+                : ListenableBuilder(
+                    listenable: Hidden.i,
+                    builder: (context, _) {
+                      final list = all.where((c) => !Hidden.i.country(c.code)).toList();
+                      return ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(8, 4, 8, 20),
+                        itemCount: list.length + 1,
+                        itemBuilder: (_, i) {
+                          if (i == 0) {
+                            return const Padding(
+                              padding: EdgeInsets.fromLTRB(12, 0, 12, 6),
+                              child: Text('Tieni premuto su un paese per nasconderlo.',
+                                  style: TextStyle(color: Colors.white38, fontSize: 13)),
+                            );
+                          }
+                          final c = list[i - 1];
+                          return _CountryTile(
+                            code: c.code,
+                            flag: c.flag,
+                            name: c.name,
+                            color: sky,
+                            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                              builder: (_) => ChannelListPage(title: '${c.flag} ${c.name}', url: TvData.countryUrl(c.code)),
+                            )),
+                          );
+                        },
+                      );
+                    },
                   ),
           ),
         ],
@@ -614,40 +698,125 @@ class WorldCategoriesPage extends StatelessWidget {
           children: [
             const TopTitle(kids: false, title: 'Categorie'),
             Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.all(14),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 180,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 1.25,
-                ),
-                itemCount: worldCategories.length,
-                itemBuilder: (_, i) {
-                  final (id, emoji, label) = worldCategories[i];
-                  return Material(
-                    color: card,
-                    borderRadius: BorderRadius.circular(22),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(22),
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => ChannelListPage(title: '$emoji $label', url: TvData.categoryUrl(id)),
-                      )),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(emoji, style: const TextStyle(fontSize: 34)),
-                          const SizedBox(height: 6),
-                          Text(label,
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
-                        ],
+              child: CustomScrollView(
+                slivers: [
+                  for (final (title, cats) in worldCategoryGroups) ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
+                        child: Text(title,
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
                       ),
                     ),
-                  );
-                },
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      sliver: SliverGrid.builder(
+                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 170,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: 1.35,
+                        ),
+                        itemCount: cats.length,
+                        itemBuilder: (_, i) {
+                          final (id, emoji, label) = cats[i];
+                          return Material(
+                            color: card,
+                            borderRadius: BorderRadius.circular(20),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(20),
+                              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                                builder: (_) => ChannelListPage(title: '$emoji $label', url: TvData.categoryUrl(id)),
+                              )),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(emoji, style: const TextStyle(fontSize: 32)),
+                                  const SizedBox(height: 6),
+                                  Text(label,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                          color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14.5)),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                ],
               ),
             ),
           ],
+        ),
+      );
+}
+
+// ───────────────────────── NASCOSTI ─────────────────────────
+
+Future<void> openHidden(BuildContext context) =>
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const HiddenPage()));
+
+/// Paesi e canali nascosti: si rimettono con un tocco.
+class HiddenPage extends StatelessWidget {
+  const HiddenPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: navy,
+        appBar: AppBar(
+          backgroundColor: navy,
+          foregroundColor: Colors.white,
+          title: const Text('🙈 Nascosti', style: TextStyle(fontWeight: FontWeight.w900)),
+        ),
+        body: ListenableBuilder(
+          listenable: Hidden.i,
+          builder: (context, _) {
+            final countries = Hidden.i.countries.toList()..sort((a, b) => CountryNames.of(a).compareTo(CountryNames.of(b)));
+            final channels = Hidden.i.channels.entries.toList()..sort((a, b) => a.value.compareTo(b.value));
+            if (countries.isEmpty && channels.isEmpty) {
+              return const BigMessage(
+                emoji: '🙈',
+                text: 'Niente di nascosto. Tieni premuto su un paese o su un canale per nasconderlo.',
+              );
+            }
+            Widget restore(VoidCallback tap) => TextButton.icon(
+                  onPressed: tap,
+                  icon: const Icon(Icons.visibility_rounded, color: sky),
+                  label: const Text('Mostra', style: TextStyle(color: sky, fontWeight: FontWeight.w800)),
+                );
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
+              children: [
+                if (countries.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 10, 12, 6),
+                    child: Text('🏳️ Paesi', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                  ),
+                  for (final c in countries)
+                    ListTile(
+                      leading: Text(flagEmoji(c), style: const TextStyle(fontSize: 28)),
+                      title: Text(CountryNames.of(c), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                      trailing: restore(() => Hidden.i.showCountry(c)),
+                    ),
+                ],
+                if (channels.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 18, 12, 6),
+                    child: Text('📺 Canali', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                  ),
+                  for (final e in channels)
+                    ListTile(
+                      leading: const Icon(Icons.live_tv_rounded, color: Colors.white54),
+                      title: Text(e.value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                      trailing: restore(() => Hidden.i.showChannelKey(e.key)),
+                    ),
+                ],
+              ],
+            );
+          },
         ),
       );
 }
