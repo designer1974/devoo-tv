@@ -30,6 +30,7 @@ class _PlayerPageState extends State<PlayerPage> {
   VideoPlayerController? _ctl;
   bool _failed = false;
   bool _controls = true;
+  bool _fill = false; // schermo intero: il video riempie tutto lo schermo (senza bande nere)
   Timer? _hide;
   int _seq = 0;
 
@@ -100,6 +101,11 @@ class _PlayerPageState extends State<PlayerPage> {
     _showControls();
   }
 
+  void _toggleFill() {
+    setState(() => _fill = !_fill);
+    _showControls();
+  }
+
   void _showControls() {
     _hide?.cancel();
     setState(() => _controls = true);
@@ -117,6 +123,7 @@ class _PlayerPageState extends State<PlayerPage> {
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => _controls ? setState(() => _controls = false) : _showControls(),
+        onDoubleTap: _toggleFill, // doppio tocco: schermo intero / normale
         onHorizontalDragEnd: (d) {
           final v = d.primaryVelocity ?? 0;
           if (v.abs() > 300) _go(v < 0 ? 1 : -1);
@@ -125,10 +132,22 @@ class _PlayerPageState extends State<PlayerPage> {
           children: [
             Center(
               child: ctl != null && ctl.value.isInitialized
-                  ? AspectRatio(
-                      aspectRatio: ctl.value.aspectRatio > 0 ? ctl.value.aspectRatio : 16 / 9,
-                      child: VideoPlayer(ctl),
-                    )
+                  ? (_fill
+                      ? SizedBox.expand(
+                          child: FittedBox(
+                            fit: BoxFit.cover,
+                            clipBehavior: Clip.hardEdge,
+                            child: SizedBox(
+                              width: ctl.value.size.width > 0 ? ctl.value.size.width : 1600,
+                              height: ctl.value.size.height > 0 ? ctl.value.size.height : 900,
+                              child: VideoPlayer(ctl),
+                            ),
+                          ),
+                        )
+                      : AspectRatio(
+                          aspectRatio: ctl.value.aspectRatio > 0 ? ctl.value.aspectRatio : 16 / 9,
+                          child: VideoPlayer(ctl),
+                        ))
                   : _failed
                       ? Column(
                           mainAxisSize: MainAxisSize.min,
@@ -201,6 +220,8 @@ class _PlayerPageState extends State<PlayerPage> {
                               shadows: [Shadow(blurRadius: 8)],
                             )),
                       ),
+                      round(_fill ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded, _toggleFill, size: 30),
+                      const SizedBox(width: 10),
                       round(fav ? Icons.favorite : Icons.favorite_border, () => Favorites.i.toggle(c, widget.kids),
                           size: 28),
                     ],
