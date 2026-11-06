@@ -15,6 +15,9 @@ String fmtDur(Duration d) {
   return h > 0 ? '$h:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
 }
 
+/// Sempre ore:minuti:secondi (es. 0:05:09).
+String fmtDurFull(Duration d) => '${d.inHours}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
+
 String fmtSize(int b) => b >= 1024 * 1024 * 1024
     ? '${(b / 1024 / 1024 / 1024).toStringAsFixed(2)} GB'
     : b >= 1024 * 1024

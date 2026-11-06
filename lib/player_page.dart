@@ -37,6 +37,11 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _ready = false;
   bool _failed = false;
   bool _buffering = false;
+  // per riguardare le registrazioni
+  Duration _pos = Duration.zero;
+  Duration _dur = Duration.zero;
+  bool _playing = true;
+  double _rate = 1;
   bool _controls = true;
 
   // Come si vede il video:
@@ -81,8 +86,17 @@ class _PlayerPageState extends State<PlayerPage> {
     super.initState();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values); // verticale e orizzontale
     _subs
-      .add(_player.stream.buffering.listen((b) {
+      ..add(_player.stream.buffering.listen((b) {
         if (mounted) setState(() => _buffering = b);
+      }))
+      ..add(_player.stream.position.listen((p) {
+        if (mounted && !_live) setState(() => _pos = p);
+      }))
+      ..add(_player.stream.duration.listen((d) {
+        if (mounted) setState(() => _dur = d);
+      }))
+      ..add(_player.stream.playing.listen((v) {
+        if (mounted) setState(() => _playing = v);
       }));
     _open();
   }
@@ -146,6 +160,12 @@ class _PlayerPageState extends State<PlayerPage> {
       await _player.stop();
       setState(() => _failed = true);
     }
+  }
+
+  void _setRate(double r) {
+    _player.setRate(r);
+    setState(() => _rate = r);
+    _say('Velocità ×${r == r.roundToDouble() ? r.toInt() : r}');
   }
 
   void _go(int d) {
@@ -336,14 +356,19 @@ class _PlayerPageState extends State<PlayerPage> {
                     ),
                   ),
                 ),
+                if (_live) const _RecStatus(),
+                if (!_live) _FileControls(state: this, accent: acc),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(6, 6, 6, 2),
                   child: Row(children: [
-                    if (widget.list.length > 1) action(Icons.skip_previous_rounded, 'Precedente', () => _go(-1)),
-                    if (_live) action(Icons.fiber_manual_record_rounded, 'Registra', () => recordNow(context, c, kids: widget.kids), color: recRed),
+                    if (widget.list.length > 1) action(Icons.skip_previous_rounded, 'Prima', () => _go(-1)),
+                    if (_live)
+                      action(Icons.fiber_manual_record_rounded, 'Registra',
+                          () => Schedules.i.recording ? Schedules.i.stop() : recordNow(context, c, kids: widget.kids),
+                          color: recRed),
                     if (_live) action(Icons.alarm_add_rounded, 'Programma', () => openScheduleEditor(context, c, kids: widget.kids)),
-                    action(Icons.fullscreen_rounded, 'Schermo intero', _landscape, color: acc),
-                    if (widget.list.length > 1) action(Icons.skip_next_rounded, 'Successivo', () => _go(1)),
+                    action(Icons.fullscreen_rounded, 'Intero', _landscape, color: acc),
+                    if (widget.list.length > 1) action(Icons.skip_next_rounded, 'Dopo', () => _go(1)),
                   ]),
                 ),
                 const Divider(color: Colors.white12, height: 1),
@@ -449,8 +474,17 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                 Align(
                   alignment: Alignment.bottomCenter,
-                  child: Text('${_i + 1} / ${widget.list.length}',
-                      style: TextStyle(color: acc, fontWeight: FontWeight.w800, shadows: const [Shadow(blurRadius: 8)])),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    if (_live) const _RecStatus(),
+                    if (!_live)
+                      Container(
+                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                        child: _FileControls(state: this, accent: acc),
+                      ),
+                    if (_live)
+                      Text('${_i + 1} / ${widget.list.length}',
+                          style: TextStyle(color: acc, fontWeight: FontWeight.w800, shadows: const [Shadow(blurRadius: 8)])),
+                  ]),
                 ),
               ],
             ),
@@ -487,4 +521,131 @@ class _RecButton extends StatelessWidget {
           );
         },
       );
+}
+
+
+/// Timer della registrazione in corso: ore:minuti:secondi, MB e «Ferma».
+class _RecStatus extends StatelessWidget {
+  const _RecStatus();
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Schedules.i,
+        builder: (context, _) {
+          final s = Schedules.i;
+          if (!s.recording) return const SizedBox.shrink();
+          return Container(
+            margin: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+            padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+            decoration: BoxDecoration(color: recRed, borderRadius: BorderRadius.circular(20)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.fiber_manual_record_rounded, color: Colors.white, size: 16),
+              const SizedBox(width: 6),
+              const Text('REC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 1)),
+              const SizedBox(width: 10),
+              Text(fmtDurFull(s.elapsed),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      fontFeatures: [FontFeature.tabularFigures()])),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  '${fmtSize(s.runningBytes)}${s.runningEnd != null ? ' · fino alle ${hhmm(s.runningEnd!)}' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: s.stop,
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: recRed,
+                  shape: const StadiumBorder(),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Ferma', style: TextStyle(fontWeight: FontWeight.w900)),
+              ),
+            ]),
+          );
+        },
+      );
+}
+
+/// Comandi per riguardare una registrazione: tempo, pausa, stop, ±10 s, velocità.
+class _FileControls extends StatelessWidget {
+  const _FileControls({required this.state, required this.accent});
+  final _PlayerPageState state;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final st = state;
+    final p = st._player;
+    final total = st._dur.inMilliseconds;
+    final pos = st._pos.inMilliseconds.clamp(0, total > 0 ? total : 0);
+    Widget btn(IconData i, VoidCallback tap, {double size = 30}) => IconButton(
+          onPressed: tap,
+          icon: Icon(i, color: Colors.white, size: size),
+        );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [
+          Text(fmtDurFull(Duration(milliseconds: pos)),
+              style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700)),
+          Expanded(
+            child: Slider(
+              value: pos.toDouble(),
+              max: total > 0 ? total.toDouble() : 1,
+              activeColor: accent,
+              inactiveColor: Colors.white24,
+              onChanged: total > 0 ? (v) => p.seek(Duration(milliseconds: v.round())) : null,
+            ),
+          ),
+          Text(fmtDurFull(st._dur), style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700)),
+        ]),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          if (st.widget.list.length > 1) btn(Icons.skip_previous_rounded, () => st._go(-1)),
+          btn(Icons.replay_10_rounded, () => p.seek(st._pos - const Duration(seconds: 10))),
+          Material(
+            color: accent,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: p.playOrPause,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Icon(st._playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: navy, size: 34),
+              ),
+            ),
+          ),
+          btn(Icons.forward_10_rounded, () => p.seek(st._pos + const Duration(seconds: 10))),
+          btn(Icons.stop_rounded, () async {
+            await p.pause();
+            await p.seek(Duration.zero);
+          }),
+          if (st.widget.list.length > 1) btn(Icons.skip_next_rounded, () => st._go(1)),
+        ]),
+        Wrap(spacing: 6, alignment: WrapAlignment.center, children: [
+          for (final r in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
+            ChoiceChip(
+              label: Text('×${r == r.roundToDouble() ? r.toInt() : r}'),
+              selected: st._rate == r,
+              showCheckmark: false,
+              selectedColor: accent,
+              backgroundColor: card,
+              side: BorderSide.none,
+              labelStyle: TextStyle(
+                  color: st._rate == r ? navy : Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+              visualDensity: VisualDensity.compact,
+              onSelected: (_) => st._setRate(r),
+            ),
+        ]),
+      ]),
+    );
+  }
 }
