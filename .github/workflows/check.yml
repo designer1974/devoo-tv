@@ -1,0 +1,32 @@
+name: Controllo canali (manuale)
+
+on:
+  workflow_dispatch:
+    inputs:
+      q:
+        description: 'Parola da cercare nei nomi'
+        default: 'mbc'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cerca nei canali iptv-org
+        run: |
+          curl -s -m 60 https://iptv-org.github.io/iptv/index.m3u -o all.m3u
+          echo "Totale: $(grep -c '^#EXTINF' all.m3u)"
+          python3 - "${{ github.event.inputs.q }}" <<'PY'
+          import sys, re
+          q = sys.argv[1].lower()
+          lines = open('all.m3u', encoding='utf-8', errors='ignore').read().splitlines()
+          out = []
+          for i, l in enumerate(lines):
+              if l.startswith('#EXTINF') and q in l.split(',')[-1].lower():
+                  url = next((x for x in lines[i+1:i+4] if x.startswith('http')), '')
+                  gid = re.search(r'tvg-id="([^"]*)"', l); grp = re.search(r'group-title="([^"]*)"', l)
+                  host = re.sub(r'^https?://([^/]+).*', r'\1', url)
+                  out.append(f"{l.split(',')[-1]} | {gid.group(1) if gid else ''} | {grp.group(1) if grp else ''} | {host}")
+          print('\n'.join(out))
+          msg = '%0A'.join(o.replace('%', '%25') for o in out[:60]) or 'nessuno'
+          print(f"::notice title=Trovati {len(out)}::{msg}")
+          PY
