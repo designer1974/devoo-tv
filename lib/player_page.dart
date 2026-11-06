@@ -30,7 +30,12 @@ class _PlayerPageState extends State<PlayerPage> {
   VideoPlayerController? _ctl;
   bool _failed = false;
   bool _controls = true;
-  bool _fill = false; // schermo intero: il video riempie tutto lo schermo (senza bande nere)
+  // Come si vede il video:
+  // 0 normale (bande nere), 1 schermo intero (allargato, non taglia logo e sottotitoli), 2 zoom (taglia i bordi)
+  int _fit = 0;
+  String? _fitLabel;
+  Timer? _fitHide;
+  static const _fitNames = ['Normale', 'Schermo intero', 'Zoom'];
   Timer? _hide;
   int _seq = 0;
 
@@ -48,6 +53,7 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void dispose() {
     _hide?.cancel();
+    _fitHide?.cancel();
     _ctl?.dispose();
     WakelockPlus.disable().catchError((Object _) {});
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -102,7 +108,14 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void _toggleFill() {
-    setState(() => _fill = !_fill);
+    _fitHide?.cancel();
+    setState(() {
+      _fit = (_fit + 1) % 3;
+      _fitLabel = _fitNames[_fit];
+    });
+    _fitHide = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) setState(() => _fitLabel = null);
+    });
     _showControls();
   }
 
@@ -132,7 +145,9 @@ class _PlayerPageState extends State<PlayerPage> {
           children: [
             Center(
               child: ctl != null && ctl.value.isInitialized
-                  ? (_fill
+                  ? (_fit == 1
+                      ? SizedBox.expand(child: VideoPlayer(ctl))
+                      : _fit == 2
                       ? SizedBox.expand(
                           child: FittedBox(
                             fit: BoxFit.cover,
@@ -175,6 +190,15 @@ class _PlayerPageState extends State<PlayerPage> {
             if (ctl != null && ctl.value.isInitialized && ctl.value.isBuffering)
               Center(child: CircularProgressIndicator(color: acc)),
             if (_controls || _failed) _overlay(acc),
+            if (_fitLabel != null)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                  decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(24)),
+                  child: Text(_fitLabel!,
+                      style: TextStyle(color: acc, fontSize: 20, fontWeight: FontWeight.w900)),
+                ),
+              ),
           ],
         ),
       ),
@@ -220,7 +244,7 @@ class _PlayerPageState extends State<PlayerPage> {
                               shadows: [Shadow(blurRadius: 8)],
                             )),
                       ),
-                      round(_fill ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded, _toggleFill, size: 30),
+                      round(const [Icons.fullscreen_rounded, Icons.zoom_in_rounded, Icons.fullscreen_exit_rounded][_fit], _toggleFill, size: 30),
                       const SizedBox(width: 10),
                       round(fav ? Icons.favorite : Icons.favorite_border, () => Favorites.i.toggle(c, widget.kids),
                           size: 28),
