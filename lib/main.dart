@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:media_kit/media_kit.dart';
 
 import 'data.dart';
 import 'shell.dart';
@@ -7,6 +8,7 @@ import 'ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized(); // lettore video
   ErrorWidget.builder = (_) => const SizedBox.shrink(); // un errore in un riquadro non chiude l'app
   try {
     await Favorites.i.init().timeout(const Duration(seconds: 4));

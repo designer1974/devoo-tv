@@ -11,8 +11,10 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  video_player: ^2.9.2
-  wakelock_plus: ^1.2.8
+  # lettore video con sottotitoli e lingue audio (libmpv)
+  media_kit: ^1.1.11
+  media_kit_video: ^1.2.5
+  media_kit_libs_video: ^1.0.5
   crypto: ^3.0.3
   http: ^1.2.0
   path_provider: ^2.1.4
