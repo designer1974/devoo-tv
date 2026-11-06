@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+import 'dart:io';
+
+import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'data.dart';
 import 'models.dart';
@@ -18,7 +20,7 @@ Future<void> openPlayer(BuildContext context, List<Channel> list, int index, {re
 
 /// Guarda un canale a schermo intero. Avanti/indietro passa al canale vicino
 /// (sempre nello stesso elenco: dai bambini non si arriva ai canali del mondo).
-/// Lettore media_kit: legge anche le tracce di sottotitoli e le lingue audio del canale.
+/// Lettore ExoPlayer di Android (video_player): apre i canali in fretta.
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.list, required this.index, required this.kids});
   final List<Channel> list;
@@ -30,8 +32,8 @@ class PlayerPage extends StatefulWidget {
 
 class _PlayerPageState extends State<PlayerPage> {
   late int _i = widget.index;
-  final Player _player = Player();
-  late final VideoController _video = VideoController(_player);
+  VideoPlayerController? _ctl;
+  late final _player = _Facade(this);
   final _subs = <StreamSubscription<Object?>>[];
 
   bool _ready = false;
@@ -85,19 +87,7 @@ class _PlayerPageState extends State<PlayerPage> {
   void initState() {
     super.initState();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values); // verticale e orizzontale
-    _subs
-      ..add(_player.stream.buffering.listen((b) {
-        if (mounted) setState(() => _buffering = b);
-      }))
-      ..add(_player.stream.position.listen((p) {
-        if (mounted && !_live) setState(() => _pos = p);
-      }))
-      ..add(_player.stream.duration.listen((d) {
-        if (mounted) setState(() => _dur = d);
-      }))
-      ..add(_player.stream.playing.listen((v) {
-        if (mounted) setState(() => _playing = v);
-      }));
+    WakelockPlus.enable().catchError((Object _) {}); // lo schermo resta acceso
     _open();
   }
 
@@ -109,34 +99,84 @@ class _PlayerPageState extends State<PlayerPage> {
     for (final s in _subs) {
       s.cancel();
     }
-    _player.dispose();
+    _ctl?.dispose();
+    WakelockPlus.disable().catchError((Object _) {});
     _listScroll.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
   }
 
-  /// Prova un indirizzo: va bene appena arriva il video, no se c'è un errore o dopo 20 secondi.
+  /// Prova un indirizzo: va bene appena il video è pronto, no se c'è un errore o dopo 15 secondi.
   Future<bool> _try(String url, Map<String, String> headers, int seq) async {
-    final done = Completer<bool>();
-    final subs = <StreamSubscription<Object?>>[
-      _player.stream.width.listen((w) {
-        if (w != null && w > 0 && !done.isCompleted) done.complete(true);
-      }),
-      _player.stream.error.listen((_) {
-        if (!done.isCompleted) done.complete(false);
-      }),
-    ];
+    final isFile = !url.startsWith('http');
+    final ctl = isFile
+        ? VideoPlayerController.file(File(url))
+        : VideoPlayerController.networkUrl(
+            Uri.parse(url),
+            httpHeaders: headers,
+            formatHint: url.toLowerCase().contains('.m3u8') ? VideoFormat.hls : null,
+          );
     try {
-      await _player.open(Media(url, httpHeaders: headers), play: true);
-      return await done.future.timeout(const Duration(seconds: 20), onTimeout: () => false);
-    } catch (_) {
-      return false;
-    } finally {
-      for (final s in subs) {
-        s.cancel();
+      await ctl.initialize().timeout(const Duration(seconds: 15));
+      if (seq != _seq || !mounted) {
+        await ctl.dispose();
+        return false;
       }
+      ctl.addListener(() => _onValue(ctl, seq));
+      final old = _ctl;
+      setState(() => _ctl = ctl);
+      await old?.dispose();
+      await ctl.play();
+      if (isFile && _rate != 1) await ctl.setPlaybackSpeed(_rate);
+      return true;
+    } catch (_) {
+      await ctl.dispose();
+      return false;
     }
+  }
+
+  void _onValue(VideoPlayerController ctl, int seq) {
+    if (!mounted || seq != _seq || ctl != _ctl) return;
+    final v = ctl.value;
+    if (v.hasError && !_failed) {
+      setState(() => _failed = true);
+      return;
+    }
+    final changed = v.isBuffering != _buffering ||
+        v.isPlaying != _playing ||
+        v.duration != _dur ||
+        (!_live && (v.position - _pos).inMilliseconds.abs() >= 250);
+    if (!changed) return;
+    setState(() {
+      _buffering = v.isBuffering;
+      _playing = v.isPlaying;
+      _dur = v.duration;
+      if (!_live) _pos = v.position;
+    });
+  }
+
+  /// Il video, adattato allo spazio: 0 normale, 1 allargato a tutto schermo, 2 zoom.
+  Widget _videoView(int fit) {
+    final ctl = _ctl;
+    if (ctl == null || !ctl.value.isInitialized) return const SizedBox.expand();
+    final ar = ctl.value.aspectRatio > 0 ? ctl.value.aspectRatio : 16 / 9;
+    if (fit == 1) return SizedBox.expand(child: VideoPlayer(ctl));
+    if (fit == 2) {
+      final size = ctl.value.size;
+      return SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: size.width > 0 ? size.width : 1600,
+            height: size.height > 0 ? size.height : 900,
+            child: VideoPlayer(ctl),
+          ),
+        ),
+      );
+    }
+    return Center(child: AspectRatio(aspectRatio: ar, child: VideoPlayer(ctl)));
   }
 
   Future<void> _open() async {
@@ -157,7 +197,7 @@ class _PlayerPageState extends State<PlayerPage> {
       }
     }
     if (seq == _seq && mounted) {
-      await _player.stop();
+      await _ctl?.pause();
       setState(() => _failed = true);
     }
   }
@@ -220,12 +260,7 @@ class _PlayerPageState extends State<PlayerPage> {
         child: Stack(
           children: [
             Positioned.fill(
-              child: Video(
-                controller: _video,
-                controls: NoVideoControls,
-                fill: Colors.black,
-                fit: const [BoxFit.contain, BoxFit.fill, BoxFit.cover][_fit],
-              ),
+              child: ColoredBox(color: Colors.black, child: _videoView(_fit)),
             ),
             if (_failed)
               Center(
@@ -330,7 +365,7 @@ class _PlayerPageState extends State<PlayerPage> {
                       color: Colors.black,
                       child: Stack(children: [
                         Positioned.fill(
-                          child: Video(controller: _video, controls: NoVideoControls, fill: Colors.black, fit: BoxFit.contain),
+                          child: _videoView(0),
                         ),
                         if (_failed)
                           Center(
@@ -648,4 +683,30 @@ class _FileControls extends StatelessWidget {
       ]),
     );
   }
+}
+
+
+/// Comandi del lettore (pausa, posizione, velocità) sopra video_player.
+class _Facade {
+  _Facade(this.s);
+  final _PlayerPageState s;
+
+  Future<void> seek(Duration d) async {
+    final c = s._ctl;
+    if (c == null) return;
+    final max = c.value.duration;
+    var t = d < Duration.zero ? Duration.zero : d;
+    if (max > Duration.zero && t > max) t = max;
+    await c.seekTo(t);
+  }
+
+  Future<void> playOrPause() async {
+    final c = s._ctl;
+    if (c == null) return;
+    c.value.isPlaying ? await c.pause() : await c.play();
+  }
+
+  Future<void> pause() async => s._ctl?.pause();
+
+  Future<void> setRate(double r) async => s._ctl?.setPlaybackSpeed(r);
 }
