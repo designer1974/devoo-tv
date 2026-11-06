@@ -12,6 +12,10 @@ class Pin {
   static const _k = 'parent_pin_v1';
   static const _salt = 'devoo-tv-pin';
 
+  /// Sbloccato: il PIN si chiede una volta sola finché l'app resta aperta.
+  /// Torna bloccato appena si esce dall'app (main.dart).
+  static bool unlocked = false;
+
   static String _hash(String pin) => sha256.convert(utf8.encode('$_salt:$pin')).toString();
 
   static Future<bool> exists() async => (await SharedPreferences.getInstance()).getString(_k) != null;
@@ -24,6 +28,7 @@ class Pin {
 
 /// Chiede il PIN (o lo crea la prima volta). Ritorna true se si può entrare.
 Future<bool> unlockWorld(BuildContext context) async {
+  if (Pin.unlocked) return true;
   if (!await Pin.exists()) {
     if (!context.mounted) return false;
     final first = await askPin(context, title: 'Crea il PIN dei genitori', hint: 'Scegli 4 numeri da ricordare');
@@ -35,11 +40,13 @@ Future<bool> unlockWorld(BuildContext context) async {
       return false;
     }
     await Pin.set(first);
+    Pin.unlocked = true;
     if (context.mounted) snack(context, 'PIN creato ✔ Senza PIN si vedono solo i canali per bambini.');
     return true;
   }
   if (!context.mounted) return false;
   final pin = await askPin(context, title: '🔒 Solo per i genitori', hint: 'Scrivi il PIN', check: Pin.check);
+  if (pin != null) Pin.unlocked = true;
   return pin != null;
 }
 

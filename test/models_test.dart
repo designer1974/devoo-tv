@@ -46,6 +46,23 @@ https://a.example/x2.m3u8
     expect(l[1].alts.length, 1);
   });
 
+  test('stesso logo: un canale solo', () {
+    const t = '''#EXTM3U
+#EXTINF:-1 tvg-id="2MMonde.ma@SD" tvg-logo="https://l/2m.png" group-title="General",2M Monde (720p)
+https://a.example/m1.m3u8
+#EXTINF:-1 tvg-id="2M.ma@SD" tvg-logo="https://l/2m.png" group-title="General",2M (720p)
+https://a.example/m2.m3u8
+#EXTINF:-1 tvg-id="2MMonde.ma@Plus1" tvg-logo="https://l/2M.png" group-title="General",2M Monde +1
+https://a.example/m3.m3u8
+#EXTINF:-1 tvg-id="AlAoula.ma@SD" tvg-logo="https://l/aoula.png" group-title="General",Al Aoula
+https://a.example/a.m3u8
+''';
+    final l = parseM3u(t);
+    expect(l.map((c) => c.name), ['2M', 'Al Aoula']);
+    expect(l[0].urls.first, 'https://a.example/m2.m3u8');
+    expect(l[0].urls.length, 3);
+  });
+
   test('salvataggio compatto', () {
     final c = parseM3u(_m3u).first;
     final back = Channel.fromCompact(c.toCompact())!;

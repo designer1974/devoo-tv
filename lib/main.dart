@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'data.dart';
 import 'kids_home.dart';
+import 'pin.dart';
 import 'ui.dart';
 import 'update.dart';
 
@@ -62,9 +63,19 @@ class _Start extends StatefulWidget {
 }
 
 class _StartState extends State<_Start> {
+  // uscendo dall'app (home, altra app, schermo spento) il Mondo si richiude: al ritorno serve il PIN
+  late final AppLifecycleListener _life = AppLifecycleListener(onPause: () => Pin.unlocked = false);
+
+  @override
+  void dispose() {
+    _life.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    _life.hashCode; // avvia l'ascolto
     Future<void>.delayed(const Duration(seconds: 5), () {
       if (mounted) checkForUpdate(context);
     });

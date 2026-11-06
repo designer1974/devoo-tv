@@ -173,6 +173,37 @@ List<Channel> parseM3u(String text) {
       ua = '';
     }
   }
+  return mergeSameLogo(out);
+}
+
+/// Stesso logo = stesso canale (es. «2M», «2M Monde», «2M Monde +1»):
+/// resta uno solo, con il nome più corto e gli altri indirizzi come riserva.
+List<Channel> mergeSameLogo(List<Channel> list) {
+  final out = <Channel>[];
+  final byLogo = <String, int>{};
+  for (final c in list) {
+    final logo = c.logo.trim().toLowerCase();
+    final at = logo.isEmpty ? null : byLogo[logo];
+    if (at == null) {
+      if (logo.isNotEmpty) byLogo[logo] = out.length;
+      out.add(c);
+      continue;
+    }
+    var keep = out[at];
+    if (c.name.length < keep.name.length) {
+      // il nome più corto è quello "principale": i suoi indirizzi vanno prima
+      var merged = c;
+      for (final u in keep.urls) {
+        merged = merged.withAlt(u);
+      }
+      keep = merged;
+    } else {
+      for (final u in c.urls) {
+        keep = keep.withAlt(u);
+      }
+    }
+    out[at] = keep;
+  }
   return out;
 }
 

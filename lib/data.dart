@@ -17,6 +17,7 @@ class TvData {
 
   static const _base = 'https://iptv-org.github.io/iptv';
   static const kidsUrl = '$_base/categories/kids.m3u';
+  static const allUrl = '$_base/index.m3u'; // tutti i canali, per la ricerca
   static String countryUrl(String code) => '$_base/countries/${code.toLowerCase()}.m3u';
   static String categoryUrl(String id) => '$_base/categories/$id.m3u';
 
@@ -25,7 +26,7 @@ class TvData {
   Future<File> _file(String key) async {
     final dir = await getApplicationSupportDirectory();
     final safe = key.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_');
-    return File('${dir.path}/tv_$safe.json');
+    return File('${dir.path}/tv2_$safe.json'); // v2: doppioni uniti
   }
 
   /// Canali di una playlist. [fresh]: riscarica comunque.
