@@ -52,11 +52,31 @@ jobs:
           n=$(curl -s -m 40 https://iptv-org.github.io/iptv/categories/kids.m3u | grep -c '^#EXTINF' || true)
           echo "::notice title=Canali Kids::$n canali per bambini"
 
-      # Firma sempre uguale: ogni nuova versione si installa SOPRA la vecchia
+      # Firma sempre uguale: ogni nuova versione si installa SOPRA la vecchia.
+      # La chiave è scritta direttamente nel progetto Android (prima veniva ignorata
+      # e ogni versione aveva una firma diversa).
       - name: Chiave di firma fissa
         run: |
-          mkdir -p ~/.android
-          cp .github/test-signing.keystore ~/.android/debug.keystore
+          python3 - <<'PY'
+          import pathlib, re
+          p = pathlib.Path('android/app/build.gradle.kts')
+          s = p.read_text()
+          block = """    signingConfigs {
+                  getByName("debug") {
+                      storeFile = file("../../.github/test-signing.keystore")
+                      storePassword = "android"
+                      keyAlias = "androiddebugkey"
+                      keyPassword = "android"
+                  }
+              }
+
+          """
+          if 'test-signing.keystore' not in s:
+              s = s.replace('    buildTypes {', block.replace('\n        ', '\n') + '    buildTypes {', 1)
+          p.write_text(s)
+          assert 'test-signing.keystore' in s, 'firma non inserita'
+          PY
+          grep -n -A8 "signingConfigs" android/app/build.gradle.kts
 
       - name: Compila APK
         run: |
@@ -69,6 +89,14 @@ jobs:
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk DevooTV.apk
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk DevooTV-telefoni-vecchi.apk
           ls -la *.apk
+
+      # Controllo: l'APK deve avere SEMPRE la stessa firma, se no gli aggiornamenti non si installano
+      - name: Controllo firma
+        run: |
+          signer=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)apksigner
+          sha=$($signer verify --print-certs DevooTV.apk | grep -i "SHA-256" | head -1 | awk '{print $NF}')
+          echo "Firma: $sha"
+          [ "$sha" = "9cecaeba709181ae91b41241d4e3e0653f0afa0d55a5b91965b8daf4ac795dbc" ] || { echo "::error title=Firma::Firma sbagliata: $sha"; exit 1; }
 
       # Pubblica l'APK nella pagina "Releases" per scaricarlo dal telefono
       - uses: softprops/action-gh-release@v2
