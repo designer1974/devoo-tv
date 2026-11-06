@@ -23,14 +23,43 @@ class TvData {
 
   final _mem = <String, List<Channel>>{};
 
+  /// Lista nera: canali tolti su richiesta. È il file blocklist.txt del repository,
+  /// così si aggiorna senza fare una nuova versione dell'app.
+  static const _blockUrl = 'https://raw.githubusercontent.com/designer1974/devoo-tv/main/blocklist.txt';
+  Set<String> _block = {};
+  Future<void>? _blockLoad;
+
+  Future<void> _loadBlock() => _blockLoad ??= () async {
+        final f = await _file('blocklist');
+        try {
+          final r = await http.get(Uri.parse(_blockUrl), headers: {'User-Agent': 'DevooTV/1.0'}).timeout(const Duration(seconds: 12));
+          if (r.statusCode == 200) {
+            await f.writeAsString(r.body);
+            _block = parseBlocklist(r.body);
+            return;
+          }
+        } catch (_) {}
+        try {
+          if (await f.exists()) _block = parseBlocklist(await f.readAsString()); // senza internet: l'ultima
+        } catch (_) {}
+      }();
+
+  List<Channel> _allowed(List<Channel> l) =>
+      _block.isEmpty ? l : l.where((c) => !isBlocked(c, _block)).toList();
+
   Future<File> _file(String key) async {
     final dir = await getApplicationSupportDirectory();
     final safe = key.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_');
-    return File('${dir.path}/tv2_$safe.json'); // v2: doppioni uniti
+    return File('${dir.path}/tv3_$safe.json'); // v3: senza film, serie, sport, 24/7
   }
 
   /// Canali di una playlist. [fresh]: riscarica comunque.
   Future<List<Channel>> channels(String url, {bool fresh = false}) async {
+    await _loadBlock();
+    return _allowed(await _channels(url, fresh: fresh));
+  }
+
+  Future<List<Channel>> _channels(String url, {bool fresh = false}) async {
     if (!fresh && _mem[url] != null) return _mem[url]!;
     final f = await _file(url);
     List<Channel>? cached;

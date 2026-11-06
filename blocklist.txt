@@ -1,0 +1,5 @@
+# Devoo TV - lista nera
+# Canali tolti dall'app (per esempio su richiesta di chi ha i diritti).
+# Una riga per canale: il tvg-id (es. 2M.ma), il nome esatto del canale,
+# oppure l'inizio dell'indirizzo dello stream (https://...).
+# Le modifiche arrivano a tutte le app all'avvio, senza nuova versione.

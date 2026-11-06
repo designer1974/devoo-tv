@@ -75,6 +75,15 @@ class Channel {
   String get flag => flagEmoji(countryCode);
   bool get hasLogo => logo.startsWith('http');
 
+  /// Canali con più rischio di essere trasmessi senza diritti: film, serie, sport,
+  /// classici e i canali «24/7» dedicati a una sola serie o a un solo cartone.
+  bool get isRisky {
+    final g = group.toLowerCase();
+    if (const ['movies', 'series', 'sports', 'classic'].any(g.contains)) return true;
+    final n = name.toLowerCase();
+    return n.contains('24/7') || n.contains('24-7') || n.contains('24x7');
+  }
+
   bool get isAdult {
     final t = '$name $group'.toLowerCase();
     return t.contains('xxx') || t.contains('adult') || t.contains('erotic') || t.contains('porn');
@@ -158,7 +167,7 @@ List<Channel> parseM3u(String text) {
         userAgent: ua,
         geoBlocked: rawName.contains('[Geo-blocked]'),
       );
-      if (c.url.startsWith('http') && c.name.isNotEmpty && !c.isAdult && seenUrl.add(c.url)) {
+      if (c.url.startsWith('http') && c.name.isNotEmpty && !c.isAdult && !c.isRisky && seenUrl.add(c.url)) {
         final k = c.key;
         final at = index[k];
         if (at == null) {
@@ -226,9 +235,6 @@ const worldCategories = <(String, String, String)>[
   ('news', '📰', 'Notizie'),
   ('general', '📺', 'Generali'),
   ('entertainment', '🎭', 'Intrattenimento'),
-  ('movies', '🎬', 'Film'),
-  ('series', '🎞️', 'Serie'),
-  ('sports', '⚽', 'Sport'),
   ('music', '🎵', 'Musica'),
   ('documentary', '🦁', 'Documentari'),
   ('education', '🎓', 'Educazione'),
@@ -238,7 +244,6 @@ const worldCategories = <(String, String, String)>[
   ('travel', '✈️', 'Viaggi'),
   ('outdoor', '🏕️', 'Natura'),
   ('comedy', '😂', 'Comici'),
-  ('classic', '📼', 'Classici'),
   ('animation', '🎨', 'Animazione'),
   ('family', '👨‍👩‍👧', 'Famiglia'),
   ('lifestyle', '💄', 'Stile'),
@@ -260,3 +265,19 @@ const fallbackCountries = <Country>[
   Country('ch', 'Svizzera'), Country('br', 'Brasile'), Country('mx', 'Messico'), Country('ar', 'Argentina'),
   Country('ca', 'Canada'), Country('in', 'India'), Country('ru', 'Russia'), Country('cn', 'Cina'), Country('jp', 'Giappone'),
 ];
+
+/// Righe del file della lista nera: un tvg-id, un nome o un pezzo di indirizzo per riga.
+/// Le righe che iniziano con # sono commenti.
+Set<String> parseBlocklist(String text) => {
+      for (final l in text.split(RegExp(r'\r?\n')))
+        if (l.trim().isNotEmpty && !l.trim().startsWith('#')) l.trim().toLowerCase(),
+    };
+
+bool isBlocked(Channel c, Set<String> block) {
+  final id = c.id.toLowerCase(), base = id.split('@').first, name = c.name.toLowerCase();
+  for (final b in block) {
+    if (b == id || b == base || b == name) return true;
+    if (b.startsWith('http') && c.urls.any((u) => u.toLowerCase().startsWith(b))) return true;
+  }
+  return false;
+}

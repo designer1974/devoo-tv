@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'data.dart';
+import 'legal.dart';
 import 'models.dart';
 import 'pin.dart';
 import 'ui.dart';
@@ -238,7 +239,14 @@ class KidsHomePage extends StatelessWidget {
       bottom: false,
       child: Column(
         children: [
-          const TopTitle(kids: true),
+          TopTitle(
+            kids: true,
+            trailing: IconButton(
+              tooltip: 'Note legali',
+              onPressed: () => openLegal(context),
+              icon: const Icon(Icons.info_outline_rounded, color: Colors.white54),
+            ),
+          ),
           Expanded(
             child: ChannelsLoader(
               url: TvData.kidsUrl,
@@ -565,8 +573,10 @@ class _WorldCountriesPageState extends State<WorldCountriesPage> {
               onSelected: (v) {
                 if (v == 'pin') changePin(context);
                 if (v == 'update') checkForUpdateNow(context);
+                if (v == 'legal') openLegal(context);
               },
               itemBuilder: (_) => const [
+                PopupMenuItem(value: 'legal', child: Text('⚖️ Note legali', style: TextStyle(color: Colors.white))),
                 PopupMenuItem(value: 'pin', child: Text('🔑 Cambia PIN', style: TextStyle(color: Colors.white))),
                 PopupMenuItem(value: 'update', child: Text('🔄 Cerca aggiornamenti', style: TextStyle(color: Colors.white))),
               ],
